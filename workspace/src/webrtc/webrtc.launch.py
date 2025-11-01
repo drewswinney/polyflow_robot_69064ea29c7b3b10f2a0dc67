@@ -14,7 +14,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "signaling_url",
-            default_value="ws://10.0.0.69:3000/signal",
+            default_value="ws://10.0.0.69:3000",
             description="WebSocket URL of the signaling server"
         ),
         DeclareLaunchArgument(

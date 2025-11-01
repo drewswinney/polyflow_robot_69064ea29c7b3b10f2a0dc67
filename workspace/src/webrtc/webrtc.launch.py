@@ -22,6 +22,11 @@ def generate_launch_description():
             default_value="",
             description="Optional auth token for signaling server"
         ),
+        DeclareLaunchArgument(
+            "socketio_namespace",
+            default_value="signal",
+            description="Signaling server Socket.IO namespace"
+        )
 
         Node(
             package="webrtc",

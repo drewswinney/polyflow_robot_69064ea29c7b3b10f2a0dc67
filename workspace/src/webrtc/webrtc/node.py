@@ -1,10 +1,11 @@
 # robot/webrtc.py
 import asyncio
 import json
-import ssl
 import time
 import threading
-import websockets
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+import socketio
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.rtcdatachannel import RTCDataChannel
 
@@ -22,10 +23,14 @@ class WebRTCBridge(Node):
         self.declare_parameter("robot_id", "robot-001")
         self.declare_parameter("signaling_url", "ws://polyflow.studio/signal")
         self.declare_parameter("auth_token", "")
+        self.declare_parameter("socketio_namespace", "signal")
+        self.declare_parameter("socketio_path", "socket.io")
 
         self.robot_id = self.get_parameter("robot_id").get_parameter_value().string_value
         self.signaling_url = self.get_parameter("signaling_url").get_parameter_value().string_value
         self.auth_token = self.get_parameter("auth_token").get_parameter_value().string_value
+        self.socketio_namespace = self.get_parameter("socketio_namespace").get_parameter_value().string_value
+        self.socketio_path = self.get_parameter("socketio_path").get_parameter_value().string_value
 
         self.get_logger().info(f"WebRTC client starting for robot_id={self.robot_id}, signaling={self.signaling_url}")
 
@@ -69,56 +74,135 @@ class WebRTCBridge(Node):
 
 
 async def run_webrtc(node: WebRTCBridge):
-    """Main async WebRTC loop."""
+    """Main async WebRTC loop using Socket.IO for signaling."""
 
-    url = node.signaling_url
-    if node.auth_token:
-        url = f"{url}?token={node.auth_token}"
+    parsed = urlparse(node.signaling_url)
+    scheme_map = {"ws": "http", "wss": "https"}
+    scheme = scheme_map.get(parsed.scheme, parsed.scheme or "http")
+    if not parsed.netloc:
+        raise ValueError("signaling_url must include a host (e.g. ws://host:port/path)")
 
-    async with websockets.connect(url) as ws:
-        await ws.send(
-            json.dumps({"type": "hello", "role": "robot", "robotId": node.robot_id})
-        )
+    base_url = urlunparse((scheme, parsed.netloc, "", "", "", ""))
 
-        pc = RTCPeerConnection()
+    namespace = node.socketio_namespace.strip()
+    if not namespace:
+        namespace = parsed.path or "/"
+    if not namespace:
+        namespace = "/"
+    if not namespace.startswith("/"):
+        namespace = f"/{namespace}"
 
-        # Handle incoming DataChannels
-        @pc.on("datachannel")
-        def on_datachannel(channel: RTCDataChannel):
-            node.get_logger().info(f"DataChannel opened: {channel.label}")
-            if channel.label == "control":
-                @channel.on("message")
-                def on_message(message):
-                    if isinstance(message, bytes):
-                        message = message.decode("utf-8", "ignore")
-                    node.on_control_message(message)
-            elif channel.label == "state":
-                node.state_channel = channel
+    query_pairs = list(parse_qsl(parsed.query, keep_blank_values=True))
+    if node.auth_token and not any(key == "token" for key, _ in query_pairs):
+        query_pairs.append(("token", node.auth_token))
+    connect_query = urlencode(query_pairs)
+    connect_url = base_url if not connect_query else f"{base_url}?{connect_query}"
 
-        # Handle signaling messages
-        async for raw in ws:
-            msg = json.loads(raw)
-            if msg["type"] == "offer":
+    socketio_path = node.socketio_path.lstrip("/") or "socket.io"
+
+    sio = socketio.AsyncClient(reconnection=True)
+
+    pc = RTCPeerConnection()
+
+    @pc.on("datachannel")
+    def on_datachannel(channel: RTCDataChannel):
+        node.get_logger().info(f"DataChannel opened: {channel.label}")
+        if channel.label == "control":
+            @channel.on("message")
+            def on_message(message):
+                if isinstance(message, bytes):
+                    message = message.decode("utf-8", "ignore")
+                node.on_control_message(message)
+        elif channel.label == "state":
+            node.state_channel = channel
+
+    async def emit_message(payload: dict):
+        try:
+            await sio.emit("message", payload, namespace=namespace)
+        except Exception as exc:
+            node.get_logger().error(
+                f"Failed to emit signaling message '{payload.get('type', '<unknown>')}': {exc}"
+            )
+
+    @sio.event
+    async def connect():
+        node.get_logger().info("Connected to signaling server")
+        hello = {"type": "hello", "role": "robot", "robotId": node.robot_id}
+        if node.auth_token:
+            hello["token"] = node.auth_token
+        await emit_message(hello)
+
+    @sio.event
+    async def connect_error(data):
+        node.get_logger().error(f"Socket.IO connection failed: {data}")
+
+    @sio.event
+    async def disconnect():
+        node.get_logger().warn("Disconnected from signaling server")
+
+    @sio.on("message", namespace=namespace)
+    async def on_message(data):
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                node.get_logger().warn("Ignoring non-JSON signaling payload")
+                return
+        if not isinstance(data, dict):
+            node.get_logger().warn("Ignoring unexpected signaling payload type")
+            return
+
+        msg_type = data.get("type")
+        if msg_type == "offer":
+            try:
                 await pc.setRemoteDescription(
-                    RTCSessionDescription(sdp=msg["sdp"], type="offer")
+                    RTCSessionDescription(sdp=data["sdp"], type="offer")
                 )
+            except Exception as exc:
+                node.get_logger().error(f"Failed to set remote description: {exc}")
+                return
+
+            try:
                 answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
-                await ws.send(
-                    json.dumps(
-                        {
-                            "type": "answer",
-                            "robotId": node.robot_id,
-                            "sdp": pc.localDescription.sdp,
-                            "to": msg["from"],
-                        }
-                    )
-                )
-            elif msg["type"] == "candidate":
-                try:
-                    await pc.addIceCandidate(msg["candidate"])
-                except Exception:
-                    pass
+            except Exception as exc:
+                node.get_logger().error(f"Failed to create local answer: {exc}")
+                return
+
+            response = {
+                "type": "answer",
+                "robotId": node.robot_id,
+                "sdp": pc.localDescription.sdp,
+                "to": data.get("from"),
+            }
+            await emit_message(response)
+
+        elif msg_type == "candidate":
+            candidate = data.get("candidate")
+            if not candidate:
+                node.get_logger().debug("Received candidate message without payload")
+                return
+            try:
+                await pc.addIceCandidate(candidate)
+            except Exception as exc:
+                node.get_logger().warn(f"Failed to add ICE candidate: {exc}")
+
+        else:
+            node.get_logger().debug(f"Ignoring unsupported signaling message type: {msg_type}")
+
+    try:
+        await sio.connect(
+            connect_url,
+            transports=["websocket"],
+            namespaces=[namespace],
+            socketio_path=socketio_path,
+            auth={"token": node.auth_token} if node.auth_token else None,
+        )
+        await sio.wait()
+    finally:
+        if sio.connected:
+            await sio.disconnect()
+        await pc.close()
 
 
 def main(args=None):

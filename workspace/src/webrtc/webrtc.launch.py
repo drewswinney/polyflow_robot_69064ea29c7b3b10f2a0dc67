@@ -14,7 +14,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "signaling_url",
-            default_value="ws://10.0.0.69:3000",
+            default_value="ws://10.0.0.69:3000/signal",
             description="WebSocket URL of the signaling server"
         ),
         DeclareLaunchArgument(
@@ -24,7 +24,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "socketio_namespace",
-            default_value="signal",
+            default_value="",
             description="Signaling server Socket.IO namespace"
         ),
         Node(

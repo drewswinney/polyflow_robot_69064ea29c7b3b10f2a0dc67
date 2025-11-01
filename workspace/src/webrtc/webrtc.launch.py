@@ -26,8 +26,7 @@ def generate_launch_description():
             "socketio_namespace",
             default_value="signal",
             description="Signaling server Socket.IO namespace"
-        )
-
+        ),
         Node(
             package="webrtc",
             executable="webrtc_node",

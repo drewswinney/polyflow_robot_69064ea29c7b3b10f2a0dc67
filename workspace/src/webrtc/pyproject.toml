@@ -13,6 +13,7 @@ pyee = "*"
 crc32c = "*"
 python-socketio = "*"
 eventlet = "*"
+aiohttp = "*"
 
 [tool.poetry.scripts]
 webrtc_node = "webrtc.node:main"

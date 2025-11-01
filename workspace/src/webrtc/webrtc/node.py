@@ -20,7 +20,7 @@ class WebRTCBridge(Node):
 
         # Declare ROS params with defaults
         self.declare_parameter("robot_id", "robot-001")
-        self.declare_parameter("signaling_url", "wss://polyflow.studio/signal")
+        self.declare_parameter("signaling_url", "ws://polyflow.studio/signal")
         self.declare_parameter("auth_token", "")
         self.declare_parameter("skip_tls_verify", True)
 

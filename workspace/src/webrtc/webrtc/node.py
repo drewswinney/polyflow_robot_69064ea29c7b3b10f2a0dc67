@@ -22,12 +22,10 @@ class WebRTCBridge(Node):
         self.declare_parameter("robot_id", "robot-001")
         self.declare_parameter("signaling_url", "ws://polyflow.studio/signal")
         self.declare_parameter("auth_token", "")
-        self.declare_parameter("skip_tls_verify", True)
 
         self.robot_id = self.get_parameter("robot_id").get_parameter_value().string_value
         self.signaling_url = self.get_parameter("signaling_url").get_parameter_value().string_value
         self.auth_token = self.get_parameter("auth_token").get_parameter_value().string_value
-        self.skip_tls_verify = self.get_parameter("skip_tls_verify").get_parameter_value().bool_value
 
         self.get_logger().info(f"WebRTC client starting for robot_id={self.robot_id}, signaling={self.signaling_url}")
 
@@ -77,13 +75,7 @@ async def run_webrtc(node: WebRTCBridge):
     if node.auth_token:
         url = f"{url}?token={node.auth_token}"
 
-    ssl_ctx = ssl.create_default_context()
-    if node.skip_tls_verify:
-        node.get_logger().warn("TLS verification disabled; skipping certificate validation.")
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-
-    async with websockets.connect(url, ssl=ssl_ctx) as ws:
+    async with websockets.connect(url) as ws:
         await ws.send(
             json.dumps({"type": "hello", "role": "robot", "robotId": node.robot_id})
         )

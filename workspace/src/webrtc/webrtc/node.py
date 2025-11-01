@@ -151,7 +151,7 @@ def main(args=None):
     except Exception as e:
         node.get_logger().error(f"WebRTC loop crashed: {e}")
     finally:
-        node.get_logger().info("Shutting down")
+        node.get_logger().info("Shutting down!")
         executor.shutdown()
         loop.stop()
         loop.close()

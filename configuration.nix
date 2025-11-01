@@ -227,6 +227,9 @@ in
       LC_ALL = "en_US.UTF-8";
     };
 
+    restartIfChanged = true;
+    restartTriggers = [ webrtcPkg webrtcEnv webrtcLauncher ];
+
     serviceConfig = {
       User             = user;
       Group            = "users";

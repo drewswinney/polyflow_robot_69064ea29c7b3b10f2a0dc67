@@ -73,7 +73,14 @@
       osrfFixed
     ]);
 
-    webrtcSrc = ./workspace/src/webrtc;
+    webrtcSrc = pkgs.lib.cleanSourceWith {
+      src = ./workspace/src/webrtc;
+      filter = path: type:
+        # include typical project files; drop bytecode and VCS junk
+        !(pkgs.lib.hasSuffix ".pyc" path)
+        && !(pkgs.lib.hasInfix "/__pycache__/" path)
+        && !(pkgs.lib.hasInfix "/.git/" path);
+    };
 
     webrtcEnv = poetry2nixPkgs.mkPoetryEnv {
       projectDir = webrtcSrc;

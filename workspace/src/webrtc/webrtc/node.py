@@ -122,13 +122,27 @@ def main(args=None):
     rclpy.init(args=args)
     node = WebRTCBridge()
 
+    # Spin ROS in the background so subscriptions/timers actually run
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    ros_thread = threading.Thread(target=executor.spin, daemon=True)
+    ros_thread.start()
+    node.get_logger().info("ROS executor started (background thread)")
+
+    # Run the async WebRTC client
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
+        node.get_logger().info("Attempting to run the WebRTC client…")
         loop.run_until_complete(run_webrtc(node))
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("Keyboard interrupt received")
+    except Exception as e:
+        node.get_logger().error(f"WebRTC loop crashed: {e}")
     finally:
+        node.get_logger().info("Shutting down")
+        executor.shutdown()
+        loop.stop()
         loop.close()
         node.destroy_node()
         rclpy.shutdown()

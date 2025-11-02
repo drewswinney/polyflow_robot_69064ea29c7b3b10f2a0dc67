@@ -18,6 +18,7 @@ from std_msgs.msg import Float32
 class WebRTCBridge(Node):
     def __init__(self):
         super().__init__("webrtc_client")
+        self.get_logger().set_level(rclpy.logging.LoggingSeverity.DEBUG)
 
         # Declare ROS params with defaults
         self.declare_parameter("robot_id", "robot-001")

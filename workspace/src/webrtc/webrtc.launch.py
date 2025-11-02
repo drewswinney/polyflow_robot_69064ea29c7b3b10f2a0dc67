@@ -29,7 +29,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "ice_servers",
-            default_value="stun:stun.l.google.com:19302,turn:10.0.0.69?transport=udp,turn:10.0.0.69:3478?transport=tcp",
+            default_value="'stun:stun.l.google.com:19302','turn:10.0.0.69?transport=udp','turn:10.0.0.69:3478?transport=tcp'",
             description="Comma-separated STUN/TURN URLs (e.g. turn:host:3478)"
         ),
         DeclareLaunchArgument(

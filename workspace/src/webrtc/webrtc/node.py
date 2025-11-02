@@ -6,7 +6,7 @@ import threading
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import socketio
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
 from aiortc.rtcdatachannel import RTCDataChannel
 
 import rclpy
@@ -196,26 +196,23 @@ async def run_webrtc(node: WebRTCBridge):
             cand_mid = data.get("sdpMid")
             cand_index = data.get("sdpMLineIndex")
 
-            if isinstance(candidate_payload, str):
-                candidate_payload = {
-                    "candidate": candidate_payload,
-                    "sdpMid": cand_mid,
-                    "sdpMLineIndex": cand_index,
-                }
-            elif isinstance(candidate_payload, dict):
-                candidate_payload = dict(candidate_payload)
-                candidate_payload.setdefault("sdpMid", cand_mid)
-                candidate_payload.setdefault("sdpMLineIndex", cand_index)
+            if isinstance(candidate_payload, dict):
+                cand_candidate = candidate_payload.get("candidate")
+                cand_mid = candidate_payload.get("sdpMid", cand_mid)
+                cand_index = candidate_payload.get("sdpMLineIndex", cand_index)
+            elif isinstance(candidate_payload, str):
+                cand_candidate = candidate_payload
             else:
                 node.get_logger().warn("Ignoring ICE candidate with unexpected payload type")
                 return
 
-            if not candidate_payload.get("candidate"):
+            if not cand_candidate:
                 node.get_logger().debug("ICE candidate payload missing 'candidate' data")
                 return
 
             try:
-                await pc.addIceCandidate(candidate_payload)
+                ice_candidate = RTCIceCandidate(cand_mid, cand_index, cand_candidate)
+                await pc.addIceCandidate(ice_candidate)
             except Exception as exc:
                 node.get_logger().warn(f"Failed to add ICE candidate: {exc}")
 

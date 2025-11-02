@@ -107,6 +107,26 @@ async def run_webrtc(node: WebRTCBridge):
     connect_url = base_url if not connect_query else f"{base_url}?{connect_query}"
 
     sio = socketio.AsyncClient(reconnection=True)
+    pending_messages: list[dict] = []
+
+    async def emit_message(payload: dict):
+        if not sio.connected:
+            pending_messages.append(payload)
+            return
+        try:
+            await sio.emit("message", payload, namespace=namespace)
+        except Exception as exc:
+            node.get_logger().error(
+                f"Failed to emit signaling message '{payload.get('type', '<unknown>')}': {exc}"
+            )
+
+    async def flush_pending():
+        if not pending_messages or not sio.connected:
+            return
+        queued = pending_messages[:]
+        pending_messages.clear()
+        for message in queued:
+            await emit_message(message)
 
     pc = RTCPeerConnection()
 
@@ -143,14 +163,6 @@ async def run_webrtc(node: WebRTCBridge):
             }
         await emit_message(payload)
 
-    async def emit_message(payload: dict):
-        try:
-            await sio.emit("message", payload, namespace=namespace)
-        except Exception as exc:
-            node.get_logger().error(
-                f"Failed to emit signaling message '{payload.get('type', '<unknown>')}': {exc}"
-            )
-
     @sio.event
     async def connect():
         node.get_logger().info("Connected to signaling server")
@@ -158,6 +170,7 @@ async def run_webrtc(node: WebRTCBridge):
         if node.auth_token:
             hello["token"] = node.auth_token
         await emit_message(hello)
+        await flush_pending()
 
     @sio.event
     async def connect_error(data):

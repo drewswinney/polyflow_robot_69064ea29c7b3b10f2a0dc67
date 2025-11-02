@@ -110,10 +110,12 @@ async def run_webrtc(node: WebRTCBridge):
     pending_messages: list[dict] = []
 
     async def emit_message(payload: dict):
+        node.get_logger().debug(f"Queuing signaling message: {payload.get('type', '<unknown>')} -> {payload}")
         if not sio.connected:
             pending_messages.append(payload)
             return
         try:
+            node.get_logger().debug(f"Emitting signaling message: {payload.get('type', '<unknown>')} -> {payload}")
             await sio.emit("message", payload, namespace=namespace)
         except Exception as exc:
             node.get_logger().error(

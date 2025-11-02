@@ -122,6 +122,27 @@ async def run_webrtc(node: WebRTCBridge):
         elif channel.label == "state":
             node.state_channel = channel
 
+    @pc.on("icecandidate")
+    async def on_icecandidate(event):
+        candidate = event.candidate
+        if candidate is None:
+            payload = {
+                "type": "candidate",
+                "robotId": node.robot_id,
+                "candidate": None,
+            }
+        else:
+            payload = {
+                "type": "candidate",
+                "robotId": node.robot_id,
+                "candidate": {
+                    "candidate": candidate.to_sdp(),
+                    "sdpMid": candidate.sdpMid,
+                    "sdpMLineIndex": candidate.sdpMLineIndex,
+                },
+            }
+        await emit_message(payload)
+
     async def emit_message(payload: dict):
         try:
             await sio.emit("message", payload, namespace=namespace)

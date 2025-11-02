@@ -6,7 +6,7 @@ import threading
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import socketio
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
 from aiortc.rtcdatachannel import RTCDataChannel
 
 import rclpy
@@ -184,12 +184,40 @@ async def run_webrtc(node: WebRTCBridge):
             await emit_message(response)
 
         elif msg_type == "candidate":
-            candidate = data.get("candidate")
-            if not candidate:
-                node.get_logger().debug("Received candidate message without payload")
+            candidate_payload = data.get("candidate")
+            if candidate_payload in (None, "null"):
+                node.get_logger().debug("Received end-of-candidates marker")
+                try:
+                    await pc.addIceCandidate(None)
+                except Exception as exc:
+                    node.get_logger().warn(f"Failed to signal end-of-candidates: {exc}")
                 return
+
+            cand_candidate = None
+            cand_mid = data.get("sdpMid")
+            cand_index = data.get("sdpMLineIndex")
+
+            if isinstance(candidate_payload, dict):
+                cand_candidate = candidate_payload.get("candidate")
+                cand_mid = candidate_payload.get("sdpMid", cand_mid)
+                cand_index = candidate_payload.get("sdpMLineIndex", cand_index)
+            elif isinstance(candidate_payload, str):
+                cand_candidate = candidate_payload
+            else:
+                node.get_logger().warn("Ignoring ICE candidate with unexpected payload type")
+                return
+
+            if not cand_candidate:
+                node.get_logger().debug("ICE candidate payload missing 'candidate' data")
+                return
+
             try:
-                await pc.addIceCandidate(candidate)
+                ice_candidate = RTCIceCandidate(
+                    sdpMid=cand_mid,
+                    sdpMLineIndex=cand_index,
+                    candidate=cand_candidate,
+                )
+                await pc.addIceCandidate(ice_candidate)
             except Exception as exc:
                 node.get_logger().warn(f"Failed to add ICE candidate: {exc}")
 

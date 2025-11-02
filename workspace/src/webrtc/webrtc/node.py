@@ -155,8 +155,8 @@ async def run_webrtc(node: WebRTCBridge):
             node.state_channel = channel
 
     @pc.on("icecandidate")
-    async def on_icecandidate(event):
-        candidate = event.candidate
+    async def on_icecandidate(candidate):
+        node.get_logger().debug(f"ICE candidate event: {candidate}")
         if candidate is None:
             payload = {
                 "type": "candidate",

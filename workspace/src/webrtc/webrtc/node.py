@@ -202,6 +202,7 @@ async def run_webrtc(node: WebRTCBridge):
 
     @sio.on("message", namespace=namespace)
     async def on_message(data):
+        node.get_logger().debug(f"Received signaling payload: {data}")
         if isinstance(data, str):
             try:
                 data = json.loads(data)
@@ -240,7 +241,7 @@ async def run_webrtc(node: WebRTCBridge):
         elif msg_type == "candidate":
             candidate_payload = data.get("candidate")
             if candidate_payload in (None, "null"):
-                node.get_logger().debug("Received end-of-candidates marker")
+                node.get_logger().debug("Received end-of-candidates marker from signaling")
                 try:
                     await pc.addIceCandidate(None)
                 except Exception as exc:

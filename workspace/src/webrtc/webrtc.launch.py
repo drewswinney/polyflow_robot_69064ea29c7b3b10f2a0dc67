@@ -27,6 +27,21 @@ def generate_launch_description():
             default_value="",
             description="Signaling server Socket.IO namespace"
         ),
+        DeclareLaunchArgument(
+            "ice_servers",
+            default_value="stun:stun.l.google.com:19302,turn:10.0.0.69?transport=udp,turn:10.0.0.69:3478?transport=tcp",
+            description="Comma-separated STUN/TURN URLs (e.g. turn:host:3478)"
+        ),
+        DeclareLaunchArgument(
+            "ice_username",
+            default_value="",
+            description="Username for TURN servers (if required)"
+        ),
+        DeclareLaunchArgument(
+            "ice_password",
+            default_value="",
+            description="Password for TURN servers (if required)"
+        ),
         Node(
             package="webrtc",
             executable="webrtc_node",
@@ -36,6 +51,10 @@ def generate_launch_description():
                 "robot_id": LaunchConfiguration("robot_id"),
                 "signaling_url": LaunchConfiguration("signaling_url"),
                 "auth_token": LaunchConfiguration("auth_token"),
+                "socketio_namespace": LaunchConfiguration("socketio_namespace"),
+                "ice_servers": LaunchConfiguration("ice_servers"),
+                "ice_username": LaunchConfiguration("ice_username"),
+                "ice_password": LaunchConfiguration("ice_password"),
             }],
         ),
     ])

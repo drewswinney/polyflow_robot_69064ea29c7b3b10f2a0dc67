@@ -6,7 +6,12 @@ import threading
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import socketio
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCPeerConnection,
+    RTCSessionDescription,
+    RTCConfiguration,
+    RTCIceServer,
+)
 from aiortc.rtcdatachannel import RTCDataChannel
 
 import rclpy
@@ -26,12 +31,18 @@ class WebRTCBridge(Node):
         self.declare_parameter("auth_token", "")
         self.declare_parameter("socketio_namespace", "")
         self.declare_parameter("socketio_path", "")
+        self.declare_parameter("ice_servers", ["stun:stun.l.google.com:19302"])
+        self.declare_parameter("ice_username", "")
+        self.declare_parameter("ice_password", "")
 
         self.robot_id = self.get_parameter("robot_id").get_parameter_value().string_value
         self.signaling_url = self.get_parameter("signaling_url").get_parameter_value().string_value
         self.auth_token = self.get_parameter("auth_token").get_parameter_value().string_value
         self.socketio_namespace = self.get_parameter("socketio_namespace").get_parameter_value().string_value
         self.socketio_path = self.get_parameter("socketio_path").get_parameter_value().string_value
+        self.ice_servers = self.get_parameter("ice_servers").value
+        self.ice_username = self.get_parameter("ice_username").get_parameter_value().string_value
+        self.ice_password = self.get_parameter("ice_password").get_parameter_value().string_value
 
         self.get_logger().info(f"WebRTC client starting for robot_id={self.robot_id}, signaling={self.signaling_url}")
 
@@ -76,6 +87,39 @@ class WebRTCBridge(Node):
 
 async def run_webrtc(node: WebRTCBridge):
     """Main async WebRTC loop using Socket.IO for signaling."""
+
+    raw_ice_servers = node.ice_servers
+    if isinstance(raw_ice_servers, str):
+        try:
+            parsed_servers = json.loads(raw_ice_servers)
+            if isinstance(parsed_servers, str):
+                parsed_servers = [parsed_servers]
+        except json.JSONDecodeError:
+            parsed_servers = [s.strip() for s in raw_ice_servers.split(",") if s.strip()]
+    elif isinstance(raw_ice_servers, (list, tuple)):
+        parsed_servers = [str(s) for s in raw_ice_servers if str(s).strip()]
+    else:
+        parsed_servers = []
+
+    ice_servers = []
+    for entry in parsed_servers:
+        entry = entry.strip()
+        if not entry:
+            continue
+        ice_servers.append(
+            RTCIceServer(
+                urls=[entry],
+                username=node.ice_username or None,
+                credential=node.ice_password or None,
+            )
+        )
+
+    rtc_config = RTCConfiguration(iceServers=ice_servers) if ice_servers else None
+
+    if ice_servers:
+        node.get_logger().debug(f"Using ICE servers: {parsed_servers} (username set: {bool(node.ice_username)})")
+    else:
+        node.get_logger().debug("No ICE servers configured; relying on host candidates only.")
 
     parsed = urlparse(node.signaling_url)
     scheme_map = {"ws": "http", "wss": "https"}
@@ -140,7 +184,7 @@ async def run_webrtc(node: WebRTCBridge):
                 pending_messages.insert(0, message)
                 break
 
-    pc = RTCPeerConnection()
+    pc = RTCPeerConnection(configuration=rtc_config)
 
     @pc.on("datachannel")
     def on_datachannel(channel: RTCDataChannel):

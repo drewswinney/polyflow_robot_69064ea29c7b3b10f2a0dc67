@@ -211,12 +211,81 @@ async def run_webrtc(node: WebRTCBridge):
                 return
 
             class _CandidateShim:
-                __slots__ = ("sdpMid", "sdpMLineIndex", "candidate")
+                __slots__ = (
+                    "candidate",
+                    "sdpMid",
+                    "sdpMLineIndex",
+                    "foundation",
+                    "component",
+                    "priority",
+                    "protocol",
+                    "ip",
+                    "port",
+                    "type",
+                    "tcpType",
+                    "relatedAddress",
+                    "relatedPort",
+                )
 
                 def __init__(self, candidate, mid, index):
+                    self.candidate = candidate
                     self.sdpMid = mid
                     self.sdpMLineIndex = index
-                    self.candidate = candidate
+                    self.foundation = None
+                    self.component = None
+                    self.priority = None
+                    self.protocol = None
+                    self.ip = None
+                    self.port = None
+                    self.type = None
+                    self.tcpType = None
+                    self.relatedAddress = None
+                    self.relatedPort = None
+                    self._parse_candidate(candidate)
+
+                def _parse_candidate(self, value: str):
+                    try:
+                        parts = value.split()
+                        if not parts:
+                            return
+                        foundation_part = parts[0]
+                        if foundation_part.startswith("candidate:"):
+                            self.foundation = foundation_part.split(":", 1)[1]
+                        else:
+                            self.foundation = foundation_part
+                        if len(parts) > 1:
+                            self.component = int(parts[1])
+                        if len(parts) > 2:
+                            self.protocol = parts[2].lower()
+                        if len(parts) > 3:
+                            self.priority = int(parts[3])
+                        if len(parts) > 4:
+                            self.ip = parts[4]
+                        if len(parts) > 5:
+                            self.port = int(parts[5])
+                        i = 6
+                        while i < len(parts):
+                            label = parts[i]
+                            if label == "typ" and i + 1 < len(parts):
+                                self.type = parts[i + 1]
+                                i += 2
+                            elif label == "tcptype" and i + 1 < len(parts):
+                                self.tcpType = parts[i + 1]
+                                i += 2
+                            elif label == "raddr" and i + 1 < len(parts):
+                                self.relatedAddress = parts[i + 1]
+                                i += 2
+                            elif label == "rport" and i + 1 < len(parts):
+                                try:
+                                    self.relatedPort = int(parts[i + 1])
+                                except ValueError:
+                                    self.relatedPort = None
+                                i += 2
+                            else:
+                                i += 1
+                    except Exception:
+                        # Leave parsed fields as None; caller will log already.
+                        pass
 
             try:
                 await pc.addIceCandidate(_CandidateShim(cand_candidate, cand_mid, cand_index))

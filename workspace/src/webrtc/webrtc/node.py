@@ -110,14 +110,17 @@ async def run_webrtc(node: WebRTCBridge):
     sio = socketio.AsyncClient(reconnection=True)
     pending_messages: list[dict] = []
 
+    async def _emit_now(payload: dict):
+        node.get_logger().debug(f"Emitting signaling message: {payload.get('type', '<unknown>')} -> {payload}")
+        await sio.emit("message", payload, namespace=namespace)
+
     async def emit_message(payload: dict):
-        node.get_logger().debug(f"Queuing signaling message: {payload.get('type', '<unknown>')} -> {payload}")
         if not sio.connected:
+            node.get_logger().debug(f"Queueing signaling message (offline): {payload.get('type', '<unknown>')} -> {payload}")
             pending_messages.append(payload)
             return
         try:
-            node.get_logger().debug(f"Emitting signaling message: {payload.get('type', '<unknown>')} -> {payload}")
-            await sio.emit("message", payload, namespace=namespace)
+            await _emit_now(payload)
         except Exception as exc:
             node.get_logger().error(
                 f"Failed to emit signaling message '{payload.get('type', '<unknown>')}': {exc}"
@@ -126,10 +129,16 @@ async def run_webrtc(node: WebRTCBridge):
     async def flush_pending():
         if not pending_messages or not sio.connected:
             return
-        queued = pending_messages[:]
-        pending_messages.clear()
-        for message in queued:
-            await emit_message(message)
+        while pending_messages:
+            message = pending_messages.pop(0)
+            try:
+                await _emit_now(message)
+            except Exception as exc:
+                node.get_logger().error(
+                    f"Failed to flush signaling message '{message.get('type', '<unknown>')}': {exc}"
+                )
+                pending_messages.insert(0, message)
+                break
 
     pc = RTCPeerConnection()
 
@@ -172,7 +181,11 @@ async def run_webrtc(node: WebRTCBridge):
         hello = {"type": "hello", "role": "robot", "robotId": node.robot_id}
         if node.auth_token:
             hello["token"] = node.auth_token
-        await emit_message(hello)
+        try:
+            await _emit_now(hello)
+        except Exception as exc:
+            node.get_logger().error(f"Failed to emit hello during connect: {exc}")
+            pending_messages.insert(0, hello)
         await flush_pending()
 
     @sio.event

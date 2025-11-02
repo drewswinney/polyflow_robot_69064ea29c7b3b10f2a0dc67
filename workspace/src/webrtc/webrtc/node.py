@@ -6,7 +6,7 @@ import threading
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import socketio
-from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
+from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.rtcdatachannel import RTCDataChannel
 
 import rclpy
@@ -210,9 +210,16 @@ async def run_webrtc(node: WebRTCBridge):
                 node.get_logger().debug("ICE candidate payload missing 'candidate' data")
                 return
 
+            class _CandidateShim:
+                __slots__ = ("sdpMid", "sdpMLineIndex", "candidate")
+
+                def __init__(self, candidate, mid, index):
+                    self.sdpMid = mid
+                    self.sdpMLineIndex = index
+                    self.candidate = candidate
+
             try:
-                ice_candidate = RTCIceCandidate(cand_mid, cand_index, cand_candidate)
-                await pc.addIceCandidate(ice_candidate)
+                await pc.addIceCandidate(_CandidateShim(cand_candidate, cand_mid, cand_index))
             except Exception as exc:
                 node.get_logger().warn(f"Failed to add ICE candidate: {exc}")
 

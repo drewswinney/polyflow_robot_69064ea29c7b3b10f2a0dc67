@@ -23,8 +23,8 @@ class WebRTCBridge(Node):
         self.declare_parameter("robot_id", "robot-001")
         self.declare_parameter("signaling_url", "ws://polyflow.studio/signal")
         self.declare_parameter("auth_token", "")
-        self.declare_parameter("socketio_namespace", "signal")
-        self.declare_parameter("socketio_path", "socket.io")
+        self.declare_parameter("socketio_namespace", "")
+        self.declare_parameter("socketio_path", "")
 
         self.robot_id = self.get_parameter("robot_id").get_parameter_value().string_value
         self.signaling_url = self.get_parameter("signaling_url").get_parameter_value().string_value
@@ -84,21 +84,27 @@ async def run_webrtc(node: WebRTCBridge):
 
     base_url = urlunparse((scheme, parsed.netloc, "", "", "", ""))
 
-    namespace = node.socketio_namespace.strip()
-    if not namespace:
-        namespace = parsed.path or "/"
-    if not namespace:
+    namespace_config = node.socketio_namespace.strip()
+    if namespace_config:
+        namespace = namespace_config if namespace_config.startswith("/") else f"/{namespace_config}"
+    else:
         namespace = "/"
-    if not namespace.startswith("/"):
-        namespace = f"/{namespace}"
+
+    raw_path = parsed.path or ""
+
+    path_config = node.socketio_path.strip()
+    if path_config:
+        socketio_path = path_config.lstrip("/")
+    elif raw_path and raw_path != "/":
+        socketio_path = raw_path.lstrip("/")
+    else:
+        socketio_path = "socket.io"
 
     query_pairs = list(parse_qsl(parsed.query, keep_blank_values=True))
     if node.auth_token and not any(key == "token" for key, _ in query_pairs):
         query_pairs.append(("token", node.auth_token))
     connect_query = urlencode(query_pairs)
     connect_url = base_url if not connect_query else f"{base_url}?{connect_query}"
-
-    socketio_path = node.socketio_path.lstrip("/") or "socket.io"
 
     sio = socketio.AsyncClient(reconnection=True)
 

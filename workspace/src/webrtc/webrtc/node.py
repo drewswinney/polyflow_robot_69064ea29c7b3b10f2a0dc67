@@ -155,7 +155,7 @@ async def run_webrtc(node: WebRTCBridge):
                 node.get_logger().warn("Ignoring non-JSON signaling payload")
                 return
         if not isinstance(data, dict):
-            node.get_logger().warn("Ignoring unexpected signaling payload type")
+            node.get_logger().warn("Ignoring unexpected signaling payload type!")
             return
 
         msg_type = data.get("type")

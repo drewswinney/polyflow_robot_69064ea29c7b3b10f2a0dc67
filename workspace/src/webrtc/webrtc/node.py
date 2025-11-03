@@ -31,7 +31,7 @@ class WebRTCBridge(Node):
         self.declare_parameter("auth_token", "")
         self.declare_parameter("socketio_namespace", "")
         self.declare_parameter("socketio_path", "")
-        self.declare_parameter("ice_servers", ["stun:stun.l.google.com:19302"])
+        self.declare_parameter("ice_servers", "stun:stun.l.google.com:19302")
         self.declare_parameter("ice_username", "")
         self.declare_parameter("ice_password", "")
 

@@ -3,6 +3,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -29,7 +30,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "ice_servers",
-            default_value="'stun:stun.l.google.com:19302','turn:10.0.0.69?transport=udp','turn:10.0.0.69:3478?transport=tcp'",
+            default_value="stun:stun.l.google.com:19302,turn:10.0.0.69?transport=udp,turn:10.0.0.69:3478?transport=tcp",
             description="Comma-separated STUN/TURN URLs (e.g. turn:host:3478)"
         ),
         DeclareLaunchArgument(
@@ -52,9 +53,9 @@ def generate_launch_description():
                 "signaling_url": LaunchConfiguration("signaling_url"),
                 "auth_token": LaunchConfiguration("auth_token"),
                 "socketio_namespace": LaunchConfiguration("socketio_namespace"),
-                "ice_servers": LaunchConfiguration("ice_servers"),
-                "ice_username": LaunchConfiguration("ice_username"),
-                "ice_password": LaunchConfiguration("ice_password"),
+                "ice_servers": ParameterValue(LaunchConfiguration("ice_servers"), value_type=str),
+                "ice_username": ParameterValue(LaunchConfiguration("ice_username"), value_type=str),
+                "ice_password": ParameterValue(LaunchConfiguration("ice_password"), value_type=str),
             }],
         ),
     ])

@@ -35,12 +35,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "ice_username",
-            default_value="",
+            default_value="polyflow",
             description="Username for TURN servers (if required)"
         ),
         DeclareLaunchArgument(
             "ice_password",
-            default_value="",
+            default_value="polyflow",
             description="Password for TURN servers (if required)"
         ),
         Node(

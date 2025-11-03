@@ -195,49 +195,94 @@ async def run_webrtc(node: WebRTCBridge):
                 pending_messages.insert(0, message)
                 break
 
-    pc = RTCPeerConnection(configuration=rtc_config)
+    pc_holder: dict[str, RTCPeerConnection | None] = {"pc": None}
 
-    @pc.on("datachannel")
-    def on_datachannel(channel: RTCDataChannel):
-        node.get_logger().info(f"DataChannel opened: {channel.label}")
-        if channel.label == "control":
-            @channel.on("message")
-            def on_message(message):
-                if isinstance(message, bytes):
-                    message = message.decode("utf-8", "ignore")
-                node.on_control_message(message)
-        elif channel.label == "state":
-            node.state_channel = channel
+    async def reset_peer_connection(pc: RTCPeerConnection | None, reason: str):
+        if pc is None or pc != pc_holder.get("pc"):
+            return
 
-    @pc.on("icecandidate")
-    def on_icecandidate(candidate):
-        node.get_logger().debug(f"ICE candidate event: {candidate}")
+        node.get_logger().info(f"Resetting peer connection ({reason}); awaiting new offers")
+        node.state_channel = None
 
-        async def _send():
-            if candidate is None:
-                payload = {
-                    "type": "candidate",
-                    "robotId": node.robot_id,
-                    "candidate": None,
-                }
-            else:
-                payload = {
-                    "type": "candidate",
-                    "robotId": node.robot_id,
-                    "candidate": {
-                        "candidate": candidate.to_sdp(),
-                        "sdpMid": candidate.sdpMid,
-                        "sdpMLineIndex": candidate.sdpMLineIndex,
-                    },
-                }
-            await emit_message(payload)
-            node.get_logger().debug(
-                f"Sent signaling candidate message: {payload['candidate']}"
-                if payload["candidate"] is not None
-                else "Sent signaling candidate end-of-candidates marker"
-            )
+        try:
+            if pc.connectionState != "closed":
+                await pc.close()
+        except Exception as exc:
+            node.get_logger().warn(f"Error while closing peer connection: {exc}")
 
-        asyncio.ensure_future(_send())
+        build_peer_connection()
+
+    def build_peer_connection():
+        new_pc = RTCPeerConnection(configuration=rtc_config)
+        pc_holder["pc"] = new_pc
+        node.state_channel = None
+
+        @new_pc.on("datachannel")
+        def on_datachannel(channel: RTCDataChannel):
+            node.get_logger().info(f"DataChannel opened: {channel.label}")
+
+            @channel.on("close")
+            def on_channel_close():
+                node.get_logger().info(f"DataChannel closed: {channel.label}")
+                if node.state_channel is channel:
+                    node.state_channel = None
+
+            if channel.label == "control":
+                @channel.on("message")
+                def on_message(message):
+                    if isinstance(message, bytes):
+                        message = message.decode("utf-8", "ignore")
+                    node.on_control_message(message)
+            elif channel.label == "state":
+                node.state_channel = channel
+
+        @new_pc.on("icecandidate")
+        def on_icecandidate(candidate):
+            node.get_logger().debug(f"ICE candidate event: {candidate}")
+
+            async def _send():
+                if candidate is None:
+                    payload = {
+                        "type": "candidate",
+                        "robotId": node.robot_id,
+                        "candidate": None,
+                    }
+                else:
+                    payload = {
+                        "type": "candidate",
+                        "robotId": node.robot_id,
+                        "candidate": {
+                            "candidate": candidate.to_sdp(),
+                            "sdpMid": candidate.sdpMid,
+                            "sdpMLineIndex": candidate.sdpMLineIndex,
+                        },
+                    }
+                await emit_message(payload)
+                node.get_logger().debug(
+                    f"Sent signaling candidate message: {payload['candidate']}"
+                    if payload["candidate"] is not None
+                    else "Sent signaling candidate end-of-candidates marker"
+                )
+
+            asyncio.ensure_future(_send())
+
+        @new_pc.on("connectionstatechange")
+        async def on_connectionstatechange():
+            state = new_pc.connectionState
+            node.get_logger().info(f"Peer connection state changed: {state}")
+            if state in ("failed", "closed"):
+                await reset_peer_connection(new_pc, f"connection state {state}")
+
+        @new_pc.on("iceconnectionstatechange")
+        async def on_iceconnectionstatechange():
+            state = new_pc.iceConnectionState
+            node.get_logger().info(f"ICE connection state changed: {state}")
+            if state in ("failed", "closed"):
+                await reset_peer_connection(new_pc, f"ICE state {state}")
+
+        return new_pc
+
+    build_peer_connection()
 
     @sio.event
     async def connect():
@@ -259,6 +304,7 @@ async def run_webrtc(node: WebRTCBridge):
     @sio.event
     async def disconnect():
         node.get_logger().warn("Disconnected from signaling server")
+        await reset_peer_connection(pc_holder.get("pc"), "Socket.IO disconnect")
 
     @sio.on("message", namespace=namespace)
     async def on_message(data):
@@ -273,8 +319,27 @@ async def run_webrtc(node: WebRTCBridge):
             node.get_logger().warn("Ignoring unexpected signaling payload type!")
             return
 
+        pc = pc_holder.get("pc")
+        if pc is None:
+            node.get_logger().info("Peer connection missing; rebuilding before handling signaling message")
+            build_peer_connection()
+            pc = pc_holder.get("pc")
+        if pc is None:
+            node.get_logger().error("Failed to (re)create peer connection; dropping signaling message")
+            return
+
         msg_type = data.get("type")
         if msg_type == "offer":
+            signaling_state = pc.signalingState
+            if signaling_state not in ("stable", "have-remote-offer"):
+                node.get_logger().info(
+                    f"Peer connection in state '{signaling_state}' before new offer; resetting"
+                )
+                await reset_peer_connection(pc, f"signaling state {signaling_state}")
+                pc = pc_holder.get("pc")
+                if pc is None:
+                    node.get_logger().error("Peer connection unavailable after reset; cannot handle offer")
+                    return
             try:
                 await pc.setRemoteDescription(
                     RTCSessionDescription(sdp=data["sdp"], type="offer")
@@ -299,6 +364,9 @@ async def run_webrtc(node: WebRTCBridge):
             await emit_message(response)
 
         elif msg_type == "candidate":
+            if pc is None:
+                node.get_logger().warn("No active peer connection to receive ICE candidate; ignoring")
+                return
             candidate_payload = data.get("candidate")
             if candidate_payload in (None, "null"):
                 node.get_logger().debug("Received end-of-candidates marker from signaling")
@@ -426,7 +494,12 @@ async def run_webrtc(node: WebRTCBridge):
     finally:
         if sio.connected:
             await sio.disconnect()
-        await pc.close()
+        current_pc = pc_holder.get("pc")
+        if current_pc is not None:
+            try:
+                await current_pc.close()
+            except Exception as exc:
+                node.get_logger().warn(f"Error while closing peer connection during shutdown: {exc}")
 
 
 def main(args=None):

@@ -94,6 +94,10 @@ async def run_webrtc(node: WebRTCBridge):
             parsed_servers = json.loads(raw_ice_servers)
             if isinstance(parsed_servers, str):
                 parsed_servers = [parsed_servers]
+            elif isinstance(parsed_servers, (list, tuple)):
+                parsed_servers = [str(s) for s in parsed_servers if str(s).strip()]
+            else:
+                parsed_servers = [str(parsed_servers)]
         except json.JSONDecodeError:
             parsed_servers = [s.strip() for s in raw_ice_servers.split(",") if s.strip()]
     elif isinstance(raw_ice_servers, (list, tuple)):

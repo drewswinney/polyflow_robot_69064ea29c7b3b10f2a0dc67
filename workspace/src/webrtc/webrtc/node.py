@@ -231,6 +231,11 @@ async def run_webrtc(node: WebRTCBridge):
                     },
                 }
             await emit_message(payload)
+            node.get_logger().debug(
+                f"Sent signaling candidate message: {payload['candidate']}"
+                if payload["candidate"] is not None
+                else "Sent signaling candidate end-of-candidates marker"
+            )
 
         asyncio.ensure_future(_send())
 
@@ -299,6 +304,7 @@ async def run_webrtc(node: WebRTCBridge):
                 node.get_logger().debug("Received end-of-candidates marker from signaling")
                 try:
                     await pc.addIceCandidate(None)
+                    node.get_logger().debug("Signaled end-of-candidates to peer connection")
                 except Exception as exc:
                     node.get_logger().warn(f"Failed to signal end-of-candidates: {exc}")
                 return
@@ -399,6 +405,9 @@ async def run_webrtc(node: WebRTCBridge):
 
             try:
                 await pc.addIceCandidate(_CandidateShim(cand_candidate, cand_mid, cand_index))
+                node.get_logger().debug(
+                    f"Added ICE candidate (mid={cand_mid}, mline={cand_index}): {cand_candidate}"
+                )
             except Exception as exc:
                 node.get_logger().warn(f"Failed to add ICE candidate: {exc}")
 
